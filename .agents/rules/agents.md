@@ -2,6 +2,8 @@
 trigger: always_on
 ---
 
+# Project Rules
+
 ### AGENTS.md — Engineering Rules and Architecture Guide
 
 ### Purpose

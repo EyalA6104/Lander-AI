@@ -1,0 +1,18 @@
+# Environments
+.env
+.venv/
+env/
+venv/
+ENV/
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Database
+*.sqlite3
+/alembic/versions/*.pyc
+
+# OS files
+.DS_Store
