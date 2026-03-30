@@ -1,8 +1,18 @@
 import re
+import time
 
 import httpx
+import structlog
 from bs4 import BeautifulSoup, Tag
 from pydantic import BaseModel
+
+from app.core.metrics import (
+    SCRAPER_DURATION,
+    SCRAPER_ERRORS,
+    SCRAPER_PAGE_SIZE_BYTES,
+)
+
+logger = structlog.stdlib.get_logger("scraper")
 
 
 # ---------------------------------------------------------------------------
@@ -113,6 +123,7 @@ class ScraperError(Exception):
 # ---------------------------------------------------------------------------
 
 _REQUEST_TIMEOUT = 10.0
+_MAX_REDIRECTS = 5
 
 _DEFAULT_HEADERS = {
     "User-Agent": (
@@ -185,25 +196,51 @@ async def scrape_page(url: str) -> ScrapedPageData:
     Raises:
         ScraperError: If the request fails or the response is not valid HTML.
     """
+    log = logger.bind(url=url)
+    log.info("scrape_started")
+    start = time.perf_counter()
+
     try:
         async with httpx.AsyncClient(
             headers=_DEFAULT_HEADERS,
             timeout=_REQUEST_TIMEOUT,
             follow_redirects=True,
+            max_redirects=_MAX_REDIRECTS,
         ) as client:
             response = await client.get(url)
+    except httpx.TooManyRedirects:
+        SCRAPER_ERRORS.labels(reason="redirect").inc()
+        raise ScraperError(url, "Too many redirects")
     except httpx.TimeoutException:
+        SCRAPER_ERRORS.labels(reason="timeout").inc()
         raise ScraperError(url, "Request timed out")
     except httpx.InvalidURL:
+        SCRAPER_ERRORS.labels(reason="invalid_url").inc()
         raise ScraperError(url, "Invalid URL format")
     except httpx.RequestError as exc:
+        SCRAPER_ERRORS.labels(reason="connection").inc()
         raise ScraperError(url, f"Connection error: {exc}")
 
     if response.status_code != 200:
+        SCRAPER_ERRORS.labels(reason="http_error").inc()
         raise ScraperError(url, f"HTTP {response.status_code}")
 
     content_type = response.headers.get("content-type", "")
     if "html" not in content_type:
-        raise ScraperError(url, f"Expected HTML but got {content_type}")
+        SCRAPER_ERRORS.labels(reason="non_html").inc()
+        raise ScraperError(url, "The URL did not return an HTML page")
 
-    return _parse_html(response.text, url)
+    page_size = len(response.content)
+    SCRAPER_PAGE_SIZE_BYTES.observe(page_size)
+
+    result = _parse_html(response.text, url)
+    duration = time.perf_counter() - start
+    SCRAPER_DURATION.observe(duration)
+
+    log.info(
+        "scrape_completed",
+        duration_ms=round(duration * 1000, 1),
+        page_size_bytes=page_size,
+        title=result.title,
+    )
+    return result

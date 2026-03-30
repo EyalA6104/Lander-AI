@@ -1,11 +1,11 @@
 from typing import Literal
-from pydantic import BaseModel, HttpUrl
+from pydantic import BaseModel
 
 from app.services.scraper import DesignSignals
 
 
 class AnalyzeRequest(BaseModel):
-    url: HttpUrl
+    url: str
 
 
 class AnalysisData(BaseModel):

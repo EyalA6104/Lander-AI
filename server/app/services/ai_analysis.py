@@ -1,15 +1,16 @@
 import asyncio
 import json
-import logging
-import re
+import time
 
+import structlog
 from google import genai
 from pydantic import BaseModel, ValidationError
 
 from app.core.config import get_gemini_api_key
+from app.core.metrics import AI_DURATION, AI_ERRORS, AI_RETRIES, AI_SCORES
 from app.services.scraper import ScrapedPageData
 
-logger = logging.getLogger(__name__)
+logger = structlog.stdlib.get_logger("ai_analysis")
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -17,6 +18,7 @@ logger = logging.getLogger(__name__)
 
 _MODEL_NAME = "gemini-2.5-flash"
 _REQUEST_TIMEOUT_SECONDS = 30
+_MAX_RETRIES = 2
 _MIN_SUGGESTIONS = 3
 _MAX_SUGGESTIONS = 5
 _MAX_SUGGESTION_LENGTH = 200
@@ -90,18 +92,40 @@ def _build_user_prompt(data: ScrapedPageData) -> str:
 # Response parsing
 # ---------------------------------------------------------------------------
 
-_JSON_OBJECT_RE = re.compile(r"\{[\s\S]*\}")
+def _extract_balanced_json(text: str, start: int) -> str | None:
+    """Extract a balanced JSON object starting from *start* (must be '{')."""
+    if start >= len(text) or text[start] != "{":
+        return None
+    depth = 0
+    in_string = False
+    escape = False
+    for i in range(start, len(text)):
+        ch = text[i]
+        if escape:
+            escape = False
+            continue
+        if ch == "\\":
+            escape = True
+            continue
+        if ch == '"':
+            in_string = not in_string
+            continue
+        if in_string:
+            continue
+        if ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                return text[start : i + 1]
+    return None
 
 
 def _extract_json(raw_text: str) -> str:
     """Extract the first JSON object from raw text, ignoring surrounding noise."""
     stripped = raw_text.strip()
 
-    # Fast path: already clean JSON
-    if stripped.startswith("{"):
-        return stripped
-
-    # Strip markdown code fences
+    # Strip markdown code fences first
     if "```" in stripped:
         lines = stripped.split("\n")
         inside_fence = False
@@ -113,12 +137,14 @@ def _extract_json(raw_text: str) -> str:
             if inside_fence:
                 json_lines.append(line)
         if json_lines:
-            return "\n".join(json_lines).strip()
+            stripped = "\n".join(json_lines).strip()
 
-    # Last resort: regex extraction of first { ... }
-    match = _JSON_OBJECT_RE.search(stripped)
-    if match:
-        return match.group()
+    # Find the first '{' and extract a balanced object
+    brace_pos = stripped.find("{")
+    if brace_pos != -1:
+        balanced = _extract_balanced_json(stripped, brace_pos)
+        if balanced:
+            return balanced
 
     return stripped
 
@@ -151,20 +177,22 @@ def _parse_ai_response(raw_text: str) -> AIAnalysisResult:
     try:
         payload = json.loads(json_str)
     except json.JSONDecodeError as exc:
-        logger.debug("Failed to parse AI JSON: %.500s", raw_text)
+        AI_ERRORS.labels(reason="parse_error").inc()
+        logger.debug("ai_json_parse_failed", raw_text=raw_text[:500])
         raise AIAnalysisError(f"AI returned invalid JSON: {exc}")
 
     try:
         result = AIAnalysisResult.model_validate(payload)
     except ValidationError as exc:
-        logger.debug("AI response schema mismatch: %.500s", raw_text)
+        AI_ERRORS.labels(reason="schema_error").inc()
+        logger.debug("ai_schema_mismatch", raw_text=raw_text[:500])
         raise AIAnalysisError(f"AI response does not match schema: {exc}")
 
-    # Normalize
     result.score = round(max(0.0, min(100.0, result.score)), 1)
     result.suggestions = _normalize_suggestions(result.suggestions)
 
     if len(result.suggestions) < _MIN_SUGGESTIONS:
+        AI_ERRORS.labels(reason="insufficient_suggestions").inc()
         raise AIAnalysisError(
             f"AI returned only {len(result.suggestions)} suggestion(s), "
             f"expected at least {_MIN_SUGGESTIONS}"
@@ -187,41 +215,84 @@ async def analyze_with_ai(scraped_data: ScrapedPageData) -> AIAnalysisResult:
         AIAnalysisResult with a score and suggestions.
 
     Raises:
-        AIAnalysisError: If the API call, timeout, or response parsing fails.
+        AIAnalysisError: If the API call, timeout, or response parsing fails
+            after all retries are exhausted.
     """
     api_key = get_gemini_api_key()
     client = genai.Client(api_key=api_key)
 
     user_prompt = _build_user_prompt(scraped_data)
-    logger.info("Sending AI analysis request for %s", scraped_data.url)
+    log = logger.bind(url=scraped_data.url)
+    log.info("ai_analysis_started")
 
-    try:
-        response = await asyncio.wait_for(
-            client.aio.models.generate_content(
-                model=_MODEL_NAME,
-                contents=user_prompt,
-                config=genai.types.GenerateContentConfig(
-                    system_instruction=_SYSTEM_PROMPT,
-                    temperature=0.2,
-                    max_output_tokens=1024,
-                    response_mime_type="application/json",
+    last_error: AIAnalysisError | None = None
+
+    for attempt in range(1, _MAX_RETRIES + 1):
+        attempt_start = time.perf_counter()
+        try:
+            response = await asyncio.wait_for(
+                client.aio.models.generate_content(
+                    model=_MODEL_NAME,
+                    contents=user_prompt,
+                    config=genai.types.GenerateContentConfig(
+                        system_instruction=_SYSTEM_PROMPT,
+                        temperature=0.2,
+                        max_output_tokens=1024,
+                        response_mime_type="application/json",
+                        response_schema=AIAnalysisResult,
+                    ),
                 ),
-            ),
-            timeout=_REQUEST_TIMEOUT_SECONDS,
-        )
-    except asyncio.TimeoutError:
-        logger.error("Gemini API timed out after %ds", _REQUEST_TIMEOUT_SECONDS)
-        raise AIAnalysisError(
-            f"AI request timed out after {_REQUEST_TIMEOUT_SECONDS}s"
-        )
-    except Exception as exc:
-        logger.error("Gemini API call failed: %s", exc)
-        raise AIAnalysisError(f"API request failed: {exc}")
+                timeout=_REQUEST_TIMEOUT_SECONDS,
+            )
+        except asyncio.TimeoutError:
+            AI_DURATION.observe(time.perf_counter() - attempt_start)
+            AI_ERRORS.labels(reason="timeout").inc()
+            log.error("ai_timeout", attempt=attempt, max_retries=_MAX_RETRIES)
+            last_error = AIAnalysisError(
+                f"AI request timed out after {_REQUEST_TIMEOUT_SECONDS}s"
+            )
+            if attempt < _MAX_RETRIES:
+                AI_RETRIES.inc()
+            continue
+        except Exception as exc:
+            AI_DURATION.observe(time.perf_counter() - attempt_start)
+            AI_ERRORS.labels(reason="api_error").inc()
+            log.error("ai_api_error", error=str(exc))
+            raise AIAnalysisError(f"API request failed: {exc}")
 
-    raw_text = response.text
-    if not raw_text:
-        raise AIAnalysisError("AI returned an empty response")
+        AI_DURATION.observe(time.perf_counter() - attempt_start)
 
-    logger.debug("Raw AI response: %.500s", raw_text)
+        raw_text = response.text
+        if not raw_text:
+            AI_ERRORS.labels(reason="empty_response").inc()
+            last_error = AIAnalysisError("AI returned an empty response")
+            log.warning("ai_empty_response", attempt=attempt, max_retries=_MAX_RETRIES)
+            if attempt < _MAX_RETRIES:
+                AI_RETRIES.inc()
+            continue
 
-    return _parse_ai_response(raw_text)
+        log.debug("ai_raw_response", attempt=attempt, response=raw_text[:500])
+
+        try:
+            result = _parse_ai_response(raw_text)
+            AI_SCORES.observe(result.score)
+            log.info(
+                "ai_analysis_completed",
+                attempt=attempt,
+                score=result.score,
+                suggestion_count=len(result.suggestions),
+            )
+            return result
+        except AIAnalysisError as exc:
+            last_error = exc
+            log.warning(
+                "ai_parse_failed",
+                attempt=attempt,
+                max_retries=_MAX_RETRIES,
+                reason=exc.reason,
+            )
+            if attempt < _MAX_RETRIES:
+                AI_RETRIES.inc()
+            continue
+
+    raise last_error  # type: ignore[misc]
