@@ -1,51 +1,77 @@
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=Inter:wght@300;400;500;600&display=swap');
 @import "tailwindcss";
 
-:root {
-  --background: #f8fafc;
-  --foreground: #0f172a;
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Space Grotesk", sans-serif;
+
+  --color-background: #0c0e18;
+  --color-primary: #c1fffe;
+  --color-primary-dim: #00e6e6;
+  --color-secondary: #c37fff;
+  --color-secondary-dim: #a855f7;
+  --color-tertiary: #d873ff;
+  
+  --color-surface: #0c0e18;
+  --color-surface-variant: rgba(34, 37, 52, 0.4);
+  --color-outline-variant: rgba(115, 117, 130, 0.15);
+
+  --radius-xl: 1.5rem;
+  --radius-2xl: 2rem;
+  --radius-3xl: 3rem;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #030712;
-    --foreground: #f1f5f9;
+@layer base {
+  body {
+    @apply bg-background text-[#ededfc] font-sans selection:bg-primary/30 selection:text-primary;
   }
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: var(--font-sans), system-ui, -apple-system, sans-serif;
-}
-
-@keyframes fade-in {
-  from {
-    opacity: 0;
-    transform: translateY(8px);
+@layer utilities {
+  .glass-panel {
+    @apply bg-surface-variant backdrop-blur-[40px] border border-outline-variant;
   }
-  to {
-    opacity: 1;
-    transform: translateY(0);
+  
+  .text-gradient {
+    @apply bg-clip-text text-transparent bg-gradient-to-r from-primary via-secondary to-tertiary;
+  }
+
+  .nebula-glow {
+    background: radial-gradient(circle at center, rgba(193, 255, 254, 0.15) 0%, rgba(195, 127, 255, 0.05) 50%, transparent 70%);
   }
 }
 
-@keyframes spin {
-  to {
-    transform: rotate(360deg);
-  }
+/* Custom Animations */
+@keyframes float {
+  0%, 100% { transform: translateY(0px); }
+  50% { transform: translateY(-20px); }
 }
 
-.animate-fade-in {
-  animation: fade-in 0.4s ease-out both;
+.animate-float {
+  animation: float 8s ease-in-out infinite;
 }
 
-.animate-spin {
-  animation: spin 0.8s linear infinite;
+@keyframes scan-line {
+  0% { transform: translateY(-100%); }
+  100% { transform: translateY(100%); }
+}
+
+.animate-scan {
+  animation: scan-line 6s linear infinite;
+}
+
+/* Custom Scrollbar Styling */
+.custom-scrollbar::-webkit-scrollbar {
+  width: 6px;
+}
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 8px;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(193, 255, 254, 0.3);
+  border-radius: 8px;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: rgba(193, 255, 254, 0.6);
 }
