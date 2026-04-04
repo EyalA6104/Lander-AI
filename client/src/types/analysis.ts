@@ -8,15 +8,37 @@ export interface DesignSignals {
   has_media: boolean;
 }
 
-export interface AnalysisData {
-  url: string;
-  title: string | null;
-  meta_description: string | null;
-  h1_headings: string[];
-  h2_headings: string[];
-  design_signals: DesignSignals;
+export interface ScoredSection {
   score: number | null;
   suggestions: string[];
+}
+
+export interface ContentAnalysis extends ScoredSection {
+  title: string | null;
+  metaDescription: string | null;
+}
+
+export interface StructureAnalysis extends ScoredSection {
+  h1Headings: string[];
+  h2Headings: string[];
+}
+
+export interface DesignAnalysis extends ScoredSection {
+  signals: DesignSignals;
+}
+
+export type UXAnalysis = ScoredSection;
+
+export type SEOAnalysis = ScoredSection;
+
+export interface AnalysisData {
+  url: string;
+  content: ContentAnalysis;
+  structure: StructureAnalysis;
+  design: DesignAnalysis;
+  ux: UXAnalysis;
+  seo: SEOAnalysis;
+  overallScore: number | null;
 }
 
 export interface AnalyzeResponse {

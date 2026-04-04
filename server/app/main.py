@@ -1,10 +1,15 @@
+import asyncio
+import sys
 from contextlib import asynccontextmanager
+
+if sys.platform == "win32":
+    asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
 
 import structlog
 from fastapi import FastAPI, Request, status
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from prometheus_fastapi_instrumentator import Instrumentator
 
 from app.api.routes.analyze import router as analyze_router
@@ -13,6 +18,7 @@ from app.core.logging_config import setup_logging
 from app.middleware.logging_middleware import LoggingMiddleware
 from app.middleware.rate_limiter import RateLimiterMiddleware
 from app.middleware.request_context import RequestContextMiddleware
+from app.services.renderer import close_renderer, init_renderer
 
 setup_logging()
 logger = structlog.stdlib.get_logger("app")
@@ -21,8 +27,12 @@ logger = structlog.stdlib.get_logger("app")
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("app_startup", message="Lander-AI server starting")
-    yield
-    logger.info("app_shutdown", message="Lander-AI server shutting down")
+    await init_renderer()
+    try:
+        yield
+    finally:
+        await close_renderer()
+        logger.info("app_shutdown", message="Lander-AI server shutting down")
 
 
 app = FastAPI(lifespan=lifespan)

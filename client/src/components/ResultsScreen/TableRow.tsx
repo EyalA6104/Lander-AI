@@ -1,12 +1,20 @@
 import React from "react";
 
+interface TableRowProps {
+  name: string;
+  status: string;
+  impact: string;
+  raw: string;
+  statusColor: string;
+}
+
 export default function TableRow({
   name,
   status,
   impact,
   raw,
   statusColor,
-}: any) {
+}: TableRowProps) {
   return (
     <tr className="group hover:bg-white/5 transition-colors">
       <td className="py-5 font-display text-sm font-bold tracking-wider uppercase">

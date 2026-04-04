@@ -1,4 +1,13 @@
 import React from "react";
+import { LucideIcon } from "lucide-react";
+
+interface ManeuverCardProps {
+  icon: LucideIcon;
+  title: string;
+  description: string;
+  action: string;
+  color: string;
+}
 
 export default function ManeuverCard({
   icon: Icon,
@@ -6,17 +15,11 @@ export default function ManeuverCard({
   description,
   action,
   color,
-}: {
-  icon: any;
-  title: string;
-  description: string;
-  action: string;
-  color: string;
-}) {
+}: ManeuverCardProps) {
   return (
     <div className="glass-panel p-4 md:p-6 rounded-xl hover:bg-white/10 transition-all group cursor-pointer flex items-center gap-4 md:gap-6">
       <div
-        className={`w-12 h-12 md:w-16 md:h-16 rounded-lg bg-white/5 flex items-center justify-center group-hover:scale-110 transition-transform flex-shrink-0 ${color}`}
+        className={`w-12 h-12 md:w-16 md:h-16 rounded-lg bg-white/5 flex items-center justify-center group-hover:scale-110 transition-transform shrink-0 ${color}`}
       >
         <Icon className="w-6 h-6 md:w-8 md:h-8" />
       </div>

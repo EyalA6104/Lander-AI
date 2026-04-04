@@ -20,7 +20,7 @@ JSON schema:
 async def test():
     client = genai.Client()
     response = await client.aio.models.generate_content(
-        model="gemini-2.5-flash",
+        model="gemini-3-flash",
         contents="Analyze this landing page:\nURL: https://example.com",
         config=genai.types.GenerateContentConfig(
             system_instruction=_SYSTEM_PROMPT,

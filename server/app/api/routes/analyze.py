@@ -4,11 +4,21 @@ import structlog
 from fastapi import APIRouter
 
 from app.core.metrics import ANALYZE_DURATION, ANALYZE_REQUESTS
-from app.schemas.analysis import AnalyzeRequest, AnalyzeResponse, AnalysisData
-from app.services.scraper import scrape_page, ScraperError
 from app.services.ai_analysis import analyze_with_ai, AIAnalysisError
+from app.schemas.analysis import (
+    AnalysisData,
+    AnalyzeRequest,
+    AnalyzeResponse,
+    ContentAnalysis,
+    DesignAnalysis,
+    SEOAnalysis,
+    StructureAnalysis,
+    UXAnalysis,
+)
+from app.services.scoring import compute_overall_score
 from app.services.url_validator import validate_url, URLValidationError
 from app.services.response_cache import response_cache, normalize_cache_key
+from app.services.scraper import ScraperError, scrape_page
 
 logger = structlog.stdlib.get_logger("analyze")
 
@@ -80,14 +90,11 @@ async def _run_pipeline(url: str) -> AnalyzeResponse:
 
     try:
         ai_result = await analyze_with_ai(scraped)
-        score = ai_result.score
-        suggestions = ai_result.suggestions
         status_val = "success"
         err_val = None
     except AIAnalysisError as exc:
         log.warning("pipeline_ai_failed", reason=exc.reason)
-        score = None
-        suggestions = []
+        ai_result = None
         status_val = "partial"
 
         reason_lower = exc.reason.lower()
@@ -96,15 +103,56 @@ async def _run_pipeline(url: str) -> AnalyzeResponse:
         else:
             err_val = f"AI analysis failed. Partial page data is shown below. ({exc.reason})"
 
+    if ai_result is not None:
+        computed_score = compute_overall_score(
+            content=ai_result.content.score,
+            ux=ai_result.ux.score,
+            design=ai_result.design.score,
+            structure=ai_result.structure.score,
+            seo=ai_result.seo.score,
+        )
+        log.info(
+            "scoring_summary",
+            ai_overall=ai_result.overallScore,
+            computed_overall=computed_score,
+            delta=round(ai_result.overallScore - computed_score, 1),
+            content=ai_result.content.score,
+            ux=ai_result.ux.score,
+            design=ai_result.design.score,
+            structure=ai_result.structure.score,
+            seo=ai_result.seo.score,
+        )
+    else:
+        computed_score = None
+
     data = AnalysisData(
         url=scraped.url,
-        title=scraped.title,
-        meta_description=scraped.meta_description,
-        h1_headings=scraped.h1_headings,
-        h2_headings=scraped.h2_headings,
-        design_signals=scraped.design_signals,
-        score=score,
-        suggestions=suggestions,
+        content=ContentAnalysis(
+            title=scraped.title,
+            meta_description=scraped.meta_description,
+            score=ai_result.content.score if ai_result else None,
+            suggestions=ai_result.content.suggestions if ai_result else [],
+        ),
+        structure=StructureAnalysis(
+            h1_headings=scraped.h1_headings,
+            h2_headings=scraped.h2_headings,
+            score=ai_result.structure.score if ai_result else None,
+            suggestions=ai_result.structure.suggestions if ai_result else [],
+        ),
+        design=DesignAnalysis(
+            signals=scraped.design_signals,
+            score=ai_result.design.score if ai_result else None,
+            suggestions=ai_result.design.suggestions if ai_result else [],
+        ),
+        ux=UXAnalysis(
+            score=ai_result.ux.score if ai_result else None,
+            suggestions=ai_result.ux.suggestions if ai_result else [],
+        ),
+        seo=SEOAnalysis(
+            score=ai_result.seo.score if ai_result else None,
+            suggestions=ai_result.seo.suggestions if ai_result else [],
+        ),
+        overall_score=computed_score,
     )
 
     return AnalyzeResponse(status=status_val, data=data, error=err_val)

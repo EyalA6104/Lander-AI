@@ -1,9 +1,7 @@
-import re
 import time
 
-import httpx
 import structlog
-from bs4 import BeautifulSoup, Tag
+from bs4 import BeautifulSoup
 from pydantic import BaseModel
 
 from app.core.metrics import (
@@ -11,89 +9,17 @@ from app.core.metrics import (
     SCRAPER_ERRORS,
     SCRAPER_PAGE_SIZE_BYTES,
 )
+from app.services.extractors import (
+    ContentExtractor,
+    DesignSignals,
+    DesignSignalsExtractor,
+    ExperienceSignals,
+    ExperienceSignalsExtractor,
+    StructureExtractor,
+)
+from app.services.renderer import RendererError, render_page
 
 logger = structlog.stdlib.get_logger("scraper")
-
-
-# ---------------------------------------------------------------------------
-# Design-signal detection
-# ---------------------------------------------------------------------------
-
-_ANIMATION_KEYWORDS = re.compile(
-    r"animate|animation|transition|fade|slide|zoom|bounce|pulse|motion|parallax",
-    re.IGNORECASE,
-)
-
-_KNOWN_ANIMATION_LIBS = re.compile(
-    r"framer-motion|gsap|animejs|anime\.js|lottie|aos|scroll-reveal"
-    r"|scrollreveal|wow\.js|vivus|popmotion|velocity|three\.js",
-    re.IGNORECASE,
-)
-
-
-class DesignSignals(BaseModel):
-    has_animations: bool = False
-    animation_keyword_count: int = 0
-    has_animation_library: bool = False
-    detected_libraries: list[str] = []
-    image_count: int = 0
-    video_count: int = 0
-    has_media: bool = False
-
-
-def _detect_design_signals(soup: BeautifulSoup) -> DesignSignals:
-    """Scan the parsed HTML for lightweight design & animation signals."""
-
-    keyword_hits: set[str] = set()
-
-    # --- Scan class names and inline styles on all elements ----------------
-    for tag in soup.find_all(True):
-        if not isinstance(tag, Tag):
-            continue
-
-        classes = " ".join(tag.get("class", []))
-        style = tag.get("style", "") or ""
-        combined = f"{classes} {style}"
-
-        for match in _ANIMATION_KEYWORDS.finditer(combined):
-            keyword_hits.add(match.group().lower())
-
-    # --- Scan <style> blocks -----------------------------------------------
-    for style_tag in soup.find_all("style"):
-        text = style_tag.get_text()
-        for match in _ANIMATION_KEYWORDS.finditer(text):
-            keyword_hits.add(match.group().lower())
-
-    # --- Scan <link> stylesheets for animation-library references ----------
-    detected_libs: set[str] = set()
-
-    for link in soup.find_all("link", rel="stylesheet"):
-        href = link.get("href", "") or ""
-        for match in _KNOWN_ANIMATION_LIBS.finditer(href):
-            detected_libs.add(match.group().lower())
-
-    # --- Scan <script> tags ------------------------------------------------
-    for script in soup.find_all("script"):
-        src = script.get("src", "") or ""
-        inline = script.get_text()
-        blob = f"{src} {inline}"
-
-        for match in _KNOWN_ANIMATION_LIBS.finditer(blob):
-            detected_libs.add(match.group().lower())
-
-    # --- Media elements ----------------------------------------------------
-    image_count = len(soup.find_all("img"))
-    video_count = len(soup.find_all("video"))
-
-    return DesignSignals(
-        has_animations=len(keyword_hits) > 0,
-        animation_keyword_count=len(keyword_hits),
-        has_animation_library=len(detected_libs) > 0,
-        detected_libraries=sorted(detected_libs),
-        image_count=image_count,
-        video_count=video_count,
-        has_media=(image_count + video_count) > 0,
-    )
 
 
 # ---------------------------------------------------------------------------
@@ -107,6 +33,8 @@ class ScrapedPageData(BaseModel):
     h1_headings: list[str]
     h2_headings: list[str]
     design_signals: DesignSignals
+    experience_signals: ExperienceSignals
+    visible_text_excerpt: str | None = None
 
 
 class ScraperError(Exception):
@@ -119,65 +47,15 @@ class ScraperError(Exception):
 
 
 # ---------------------------------------------------------------------------
-# HTTP config
+# Extractors (instantiated once, stateless)
 # ---------------------------------------------------------------------------
 
-_REQUEST_TIMEOUT = 10.0
-_MAX_REDIRECTS = 5
-
-_DEFAULT_HEADERS = {
-    "User-Agent": (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/131.0.0.0 Safari/537.36"
-    ),
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-    "Accept-Language": "en-US,en;q=0.9",
-}
-
-
-# ---------------------------------------------------------------------------
-# HTML parsing
-# ---------------------------------------------------------------------------
-
-def _parse_html(html: str, url: str) -> ScrapedPageData:
-    """Extract structured data from raw HTML content."""
-    soup = BeautifulSoup(html, "html.parser")
-
-    title_tag = soup.find("title")
-    title = title_tag.get_text(strip=True) if title_tag else None
-
-    meta_desc_tag = soup.find("meta", attrs={"name": "description"})
-    meta_description = (
-        meta_desc_tag.get("content", "").strip()
-        if meta_desc_tag
-        else None
-    )
-    if meta_description == "":
-        meta_description = None
-
-    h1_headings = [
-        tag.get_text(strip=True)
-        for tag in soup.find_all("h1")
-        if tag.get_text(strip=True)
-    ]
-
-    h2_headings = [
-        tag.get_text(strip=True)
-        for tag in soup.find_all("h2")
-        if tag.get_text(strip=True)
-    ]
-
-    design_signals = _detect_design_signals(soup)
-
-    return ScrapedPageData(
-        url=url,
-        title=title,
-        meta_description=meta_description,
-        h1_headings=h1_headings,
-        h2_headings=h2_headings,
-        design_signals=design_signals,
-    )
+_content_extractor = ContentExtractor()
+_structure_extractor = StructureExtractor()
+_design_signals_extractor = DesignSignalsExtractor()
+_experience_signals_extractor = ExperienceSignalsExtractor()
+_VISIBLE_TEXT_EXCERPT_CHARS = 2800
+_MIN_FRAGMENT_LENGTH = 3
 
 
 # ---------------------------------------------------------------------------
@@ -185,55 +63,52 @@ def _parse_html(html: str, url: str) -> ScrapedPageData:
 # ---------------------------------------------------------------------------
 
 async def scrape_page(url: str) -> ScrapedPageData:
-    """Fetch a page by URL and extract structured data.
+    """Render a page by URL and extract structured data.
 
     Args:
         url: The full URL of the page to scrape.
 
     Returns:
-        ScrapedPageData with title, meta description, headings, and design signals.
+        ScrapedPageData with title, meta description, headings, and AI prompt signals.
 
     Raises:
-        ScraperError: If the request fails or the response is not valid HTML.
+        ScraperError: If rendering fails.
     """
     log = logger.bind(url=url)
     log.info("scrape_started")
     start = time.perf_counter()
 
     try:
-        async with httpx.AsyncClient(
-            headers=_DEFAULT_HEADERS,
-            timeout=_REQUEST_TIMEOUT,
-            follow_redirects=True,
-            max_redirects=_MAX_REDIRECTS,
-        ) as client:
-            response = await client.get(url)
-    except httpx.TooManyRedirects:
-        SCRAPER_ERRORS.labels(reason="redirect").inc()
-        raise ScraperError(url, "Too many redirects")
-    except httpx.TimeoutException:
-        SCRAPER_ERRORS.labels(reason="timeout").inc()
-        raise ScraperError(url, "Request timed out")
-    except httpx.InvalidURL:
-        SCRAPER_ERRORS.labels(reason="invalid_url").inc()
-        raise ScraperError(url, "Invalid URL format")
-    except httpx.RequestError as exc:
-        SCRAPER_ERRORS.labels(reason="connection").inc()
-        raise ScraperError(url, f"Connection error: {exc}")
+        rendered = await render_page(url)
+    except RendererError as exc:
+        _record_renderer_error(exc)
+        raise ScraperError(url, _map_renderer_reason(exc)) from exc
 
-    if response.status_code != 200:
-        SCRAPER_ERRORS.labels(reason="http_error").inc()
-        raise ScraperError(url, f"HTTP {response.status_code}")
-
-    content_type = response.headers.get("content-type", "")
-    if "html" not in content_type:
-        SCRAPER_ERRORS.labels(reason="non_html").inc()
-        raise ScraperError(url, "The URL did not return an HTML page")
-
-    page_size = len(response.content)
+    page_size = len(rendered.html.encode("utf-8"))
     SCRAPER_PAGE_SIZE_BYTES.observe(page_size)
 
-    result = _parse_html(response.text, url)
+    soup = BeautifulSoup(rendered.html, "html.parser")
+
+    content = _content_extractor.extract(soup)
+    structure = _structure_extractor.extract(soup)
+    design = _design_signals_extractor.extract(soup)
+    experience = _experience_signals_extractor.extract(soup)
+
+    title = content.title
+    if not title and rendered.title:
+        title = rendered.title.strip() or None
+
+    result = ScrapedPageData(
+        url=url,
+        title=title,
+        meta_description=content.meta_description,
+        h1_headings=structure.h1_headings,
+        h2_headings=structure.h2_headings,
+        design_signals=design,
+        experience_signals=experience,
+        visible_text_excerpt=_build_visible_text_excerpt(rendered.visible_text),
+    )
+
     duration = time.perf_counter() - start
     SCRAPER_DURATION.observe(duration)
 
@@ -244,3 +119,57 @@ async def scrape_page(url: str) -> ScrapedPageData:
         title=result.title,
     )
     return result
+
+
+# ---------------------------------------------------------------------------
+# Internal helpers
+# ---------------------------------------------------------------------------
+
+def _record_renderer_error(exc: RendererError) -> None:
+    if exc.category == "timeout":
+        SCRAPER_ERRORS.labels(reason="timeout").inc()
+        return
+
+    if exc.category == "invalid_url":
+        SCRAPER_ERRORS.labels(reason="invalid_url").inc()
+        return
+
+    SCRAPER_ERRORS.labels(reason="connection").inc()
+
+
+def _map_renderer_reason(exc: RendererError) -> str:
+    if exc.category == "timeout":
+        return "Request timed out"
+
+    if exc.category == "invalid_url":
+        return "Invalid URL format"
+
+    return "Failed to fetch the page"
+
+
+def _build_visible_text_excerpt(visible_text: str | None) -> str | None:
+    if not visible_text:
+        return None
+
+    lines = visible_text.splitlines()
+
+    cleaned: list[str] = []
+    prev = ""
+    for raw_line in lines:
+        collapsed = " ".join(raw_line.split())
+        if len(collapsed) < _MIN_FRAGMENT_LENGTH:
+            continue
+        if collapsed == prev:
+            continue
+        prev = collapsed
+        cleaned.append(collapsed)
+
+    excerpt = " ".join(cleaned)
+    if len(excerpt) > _VISIBLE_TEXT_EXCERPT_CHARS:
+        truncated = excerpt[:_VISIBLE_TEXT_EXCERPT_CHARS]
+        last_space = truncated.rfind(" ")
+        if last_space > _VISIBLE_TEXT_EXCERPT_CHARS // 2:
+            truncated = truncated[:last_space]
+        excerpt = truncated
+
+    return excerpt.strip() or None

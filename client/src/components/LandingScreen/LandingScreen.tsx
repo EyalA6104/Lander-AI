@@ -51,9 +51,7 @@ export default function LandingScreen({
 
       <header
         className={`fixed top-0 left-0 right-0 z-[200] transition-colors duration-300 ${
-          isScrolled
-            ? "bg-[#050505] border-b border-white/5 shadow-2xl opacity-90"
-            : "bg-transparent"
+          isScrolled ? "bg-[#050505] shadow-2xl opacity-90" : "bg-transparent"
         }`}
       >
         <div className="flex justify-between items-center px-6 md:px-8 py-4 md:py-6 max-w-7xl mx-auto w-full relative">
@@ -131,7 +129,7 @@ export default function LandingScreen({
 
           <h1 className="text-4xl sm:text-5xl md:text-7xl lg:text-7xl font-display font-bold tracking-tight mb-6 md:mb-8 leading-[1.1]">
             Illuminate Your <br className="hidden sm:block" />
-            <span className="text-gradient">Conversion Strategy.</span>
+            <span className="text-gradient">Conversion Strategy</span>
           </h1>
 
           <p className="text-base md:text-lg text-slate-300 max-w-2xl mx-auto leading-relaxed mb-10 md:mb-12">
@@ -142,21 +140,23 @@ export default function LandingScreen({
 
           <div className="w-full max-w-3xl mt-2 md:mt-4 mx-auto relative z-20">
             <div className="relative group w-full">
-              <div className="absolute inset-0 bg-primary/10 blur-xl rounded-full opacity-50 transition-opacity" />
-              <div className="relative flex items-center w-full shadow-2xl rounded-full">
-                <div className="absolute left-6 text-slate-400 group-focus-within:text-primary transition-colors">
-                  <Globe className="w-5 h-5 text-cyan-500" />
+              <div className="absolute inset-0 bg-primary/10 blur-xl rounded-3xl md:rounded-full opacity-50 transition-opacity" />
+              <div className="relative flex flex-col md:block w-full gap-4">
+                <div className="relative flex items-center w-full shadow-2xl md:shadow-none rounded-full">
+                  <div className="absolute left-6 text-slate-400 group-focus-within:text-primary transition-colors z-10">
+                    <Globe className="w-5 h-5 text-cyan-500" />
+                  </div>
+                  <input
+                    id="url-input"
+                    className="w-full bg-black/40 border-0 shadow-none md:shadow-2xl focus:ring-1 focus:ring-primary/20 text-white placeholder:text-white/30 rounded-full py-5 md:py-6 pl-14 pr-6 md:pr-52 text-sm md:text-base font-sans placeholder:text-slate-500 transition-all outline-none [&:-webkit-autofill]:bg-black [&:-webkit-autofill]:[-webkit-text-fill-color:white] [&:-webkit-autofill]:[transition:background-color_5000s_ease-in-out_0s]"
+                    placeholder="Enter landing page URL for deep scanning..."
+                    type="url"
+                    value={url}
+                    onChange={(e) => setUrl(e.target.value)}
+                    onKeyDown={(e) => e.key === "Enter" && onAnalyze()}
+                  />
                 </div>
-                <input
-                  id="url-input"
-                  className="w-full bg-black/40 border-0 focus:ring-1 focus:ring-primary/20 text-white placeholder:text-white/30 rounded-full py-5 md:py-6 pl-14 pr-48 text-sm md:text-base font-sans placeholder:text-slate-500 transition-all outline-none [&:-webkit-autofill]:bg-black [&:-webkit-autofill]:[-webkit-text-fill-color:white] [&:-webkit-autofill]:[transition:background-color_5000s_ease-in-out_0s]"
-                  placeholder="Enter landing page URL for deep scanning..."
-                  type="url"
-                  value={url}
-                  onChange={(e) => setUrl(e.target.value)}
-                  onKeyDown={(e) => e.key === "Enter" && onAnalyze()}
-                />
-                <div className="absolute right-4 top-1/2 -translate-y-1/2">
+                <div className="w-full md:w-auto mt-2 md:mt-0 md:absolute md:right-2 md:top-1/2 md:-translate-y-1/2">
                   <button
                     onClick={() => {
                       onAnalyze();
@@ -165,7 +165,7 @@ export default function LandingScreen({
                         ?.scrollIntoView({ behavior: "smooth" });
                     }}
                     disabled={serverStatus !== "online"}
-                    className="bg-gradient-to-r from-cyan-500 to-fuchsia-600 hover:from-cyan-400 hover:to-fuchsia-500 text-white px-8 py-3 rounded-full font-headline font-bold text-xs tracking-widest uppercase transition-all flex items-center gap-2 active:scale-95 shadow-lg shadow-cyan-500/20"
+                    className="w-full md:w-auto justify-center bg-gradient-to-r from-cyan-500 to-fuchsia-600 hover:from-cyan-400 hover:to-fuchsia-500 text-white px-8 py-4 md:py-3 rounded-full font-headline font-bold text-xs tracking-widest uppercase transition-all flex items-center gap-2 active:scale-95 shadow-lg shadow-cyan-500/20"
                   >
                     Launch Scan
                     <Rocket className="w-3 h-3" />
@@ -175,7 +175,7 @@ export default function LandingScreen({
             </div>
 
             {error && (
-              <div className="mt-6 text-left absolute -bottom-16 w-full">
+              <div className="mt-6 text-left relative -bottom-5 w-full">
                 <ErrorMessage
                   message={error}
                   type="error"
