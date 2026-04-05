@@ -9,6 +9,7 @@ dependencies = [
     "fastapi>=0.135.2",
     "google-genai>=1.68.0",
     "httpx>=0.28.1",
+    "json-repair>=0.58.7",
     "playwright>=1.58.0",
     "prometheus-client>=0.22.0",
     "prometheus-fastapi-instrumentator>=7.0.2",

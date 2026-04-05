@@ -6,6 +6,16 @@ export interface DesignSignals {
   image_count: number;
   video_count: number;
   has_media: boolean;
+  // Extended signals (Phase 2)
+  animation_density: "low" | "medium" | "high" | "none" | null;
+  has_hover_feedback: boolean | null;
+  has_scroll_animations: boolean | null;
+}
+
+export interface ExperienceSignals {
+  has_primary_cta_above_fold: boolean | null;
+  hero_text_length: number | null;
+  has_clear_value_prop: boolean | null;
 }
 
 export interface ScoredSection {
@@ -16,6 +26,8 @@ export interface ScoredSection {
 export interface ContentAnalysis extends ScoredSection {
   title: string | null;
   metaDescription: string | null;
+  // Optional hero/CTA signals forwarded from the experience extractor
+  experienceSignals?: ExperienceSignals | null;
 }
 
 export interface StructureAnalysis extends ScoredSection {
@@ -46,3 +58,11 @@ export interface AnalyzeResponse {
   data: AnalysisData | null;
   error: string | null;
 }
+
+export const SECTION_WEIGHTS = {
+  content: 30,
+  ux: 30,
+  design: 25,
+  structure: 10,
+  seo: 5,
+} as const;

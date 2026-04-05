@@ -1,31 +1,73 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
 import Image from "next/image";
 import resultsBackground from "@/assets/resultsBackground.png";
 import {
   Activity,
+  CheckCircle2,
   LucideIcon,
+  MousePointer,
   MousePointer2,
   Palette,
   Rocket,
+  Search,
+  Sparkles,
   Type,
   Workflow,
+  Zap,
 } from "lucide-react";
-import { AnalysisData, ScoredSection } from "@/types/analysis";
+import { animate } from "motion/react";
+import {
+  AnalysisData,
+  DesignSignals,
+  ExperienceSignals,
+  ScoredSection,
+  SECTION_WEIGHTS,
+} from "@/types/analysis";
 import ManeuverCard from "./ResultsScreen/ManeuverCard";
 import DiagnosticStat from "./ResultsScreen/DiagnosticStat";
 import TableRow from "./ResultsScreen/TableRow";
+import SignalBadge from "./ResultsScreen/SignalBadge";
 
 function clampScore(score: number | null) {
   return Math.max(0, Math.min(100, score ?? 0));
 }
 
 function formatScore(score: number | null) {
-  return score == null ? "--" : score.toFixed(1).replace(/\.0$/, "");
+  return score == null ? "--" : score.toFixed(1);
 }
 
 function truncate(value: string | null, maxLength = 48) {
   if (!value) return "Null";
   return value.length > maxLength ? `${value.slice(0, maxLength)}...` : value;
+}
+
+// Truncates at a word boundary to avoid mid-word cuts.
+// Used as the sole truncation strategy where CSS line-clamp is not present.
+function truncateSuggestion(text: string, maxChars = 200): string {
+  if (text.length <= maxChars) return text;
+  const lastSpace = text.lastIndexOf(" ", maxChars);
+  const cutAt = lastSpace > 0 ? lastSpace : maxChars;
+  return text.slice(0, cutAt).trimEnd() + "\u2026";
+}
+
+function useCountUp(target: number | null, duration = 1.2): number | null {
+  const [displayed, setDisplayed] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (target === null) {
+      setDisplayed(null);
+      return;
+    }
+    setDisplayed(0);
+    const controls = animate(0, target, {
+      duration,
+      ease: "easeOut",
+      onUpdate: (v: number) => setDisplayed(v),
+    });
+    return () => controls.stop();
+  }, [target, duration]);
+
+  return displayed;
 }
 
 function scoreTone(score: number | null) {
@@ -48,7 +90,9 @@ function ScoreDial({
   strokeClass: string;
   suggestions?: string[];
 }) {
-  const normalizedScore = clampScore(value);
+  const animatedValue = useCountUp(value);
+  const displayValue = animatedValue ?? value;
+  const normalizedScore = clampScore(displayValue);
 
   return (
     <div className="bg-black/40 backdrop-blur-xl border border-white/10 rounded-[2rem] p-6 md:p-8 flex flex-col items-center justify-center relative shadow-2xl overflow-hidden min-h-[240px]">
@@ -83,7 +127,7 @@ function ScoreDial({
         </svg>
         <div className="absolute inset-0 flex flex-col items-center justify-center text-center">
           <span className="text-5xl md:text-6xl font-display font-black tracking-tighter text-white">
-            {formatScore(value)}
+            {displayValue == null ? "--" : displayValue.toFixed(1)}
           </span>
           <span className="text-[10px] md:text-xs font-display tracking-[0.3em] uppercase text-slate-500 mt-2">
             / 100
@@ -93,12 +137,12 @@ function ScoreDial({
 
       {suggestions && suggestions.length > 0 && (
         <div className="w-full space-y-2">
-          {suggestions.map((suggestion, index) => (
+          {suggestions.slice(0, 2).map((suggestion, index) => (
             <div
               key={`${label}-${index}`}
               className="text-xs text-slate-400 border border-white/5 bg-white/5 rounded-xl px-4 py-3"
             >
-              {suggestion}
+              {truncateSuggestion(suggestion)}
             </div>
           ))}
         </div>
@@ -114,6 +158,10 @@ function InsightPanel({
   icon: Icon,
   color,
   action,
+  weight,
+  panelClassName,
+  experienceSignals,
+  designSignals,
 }: {
   title: string;
   subtitle: string;
@@ -121,39 +169,136 @@ function InsightPanel({
   icon: LucideIcon;
   color: string;
   action: string;
+  weight: number;
+  panelClassName?: string;
+  experienceSignals?: ExperienceSignals | null;
+  designSignals?: DesignSignals | null;
 }) {
+  const animatedScore = useCountUp(section.score);
+  const displayScore = animatedScore ?? section.score;
+  const isUnavailable = section.score === null;
+
+  // ── Experience signal badges (Content / UX panels) ──────────────────────
+  const showValuePropBadge = experienceSignals?.has_clear_value_prop === true;
+  const heroTextLength = experienceSignals?.hero_text_length ?? null;
+  const showLowImpactBadge =
+    heroTextLength != null && heroTextLength > 0 && heroTextLength < 50;
+
+  // ── Design signal badges ─────────────────────────────────────────────────
+  const animationDensity = designSignals?.animation_density ?? null;
+  const hasHoverFeedback = designSignals?.has_hover_feedback ?? null;
+  const hasScrollAnimations = designSignals?.has_scroll_animations ?? null;
+
+  const densityLabel =
+    animationDensity === "high"
+      ? "High Visual Energy"
+      : animationDensity === "medium"
+        ? "Medium Visual Energy"
+        : animationDensity === "low"
+          ? "Low Visual Energy"
+          : null;
+
+  const densityState =
+    animationDensity === "high"
+      ? "success"
+      : animationDensity === "medium"
+        ? "neutral"
+        : "disabled";
+
+  const hasSignalBadges =
+    showValuePropBadge ||
+    showLowImpactBadge ||
+    densityLabel !== null ||
+    hasHoverFeedback !== null ||
+    hasScrollAnimations !== null;
+
   return (
-    <div className="bg-black/40 backdrop-blur-xl border border-white/10 rounded-[2rem] p-6 shadow-2xl">
+    <div
+      className={`bg-black/40 backdrop-blur-xl border border-white/10 rounded-[2rem] p-6 shadow-2xl ${panelClassName ?? ""}`}
+    >
       <div className="flex items-start justify-between gap-4 mb-5">
         <div>
           <h3 className="font-display font-bold text-base md:text-lg tracking-widest uppercase text-white">
             {title}
           </h3>
           <p className="text-[10px] md:text-xs font-display text-slate-500 uppercase tracking-widest mt-2">
-            {subtitle}
+            {subtitle}&nbsp;·&nbsp;{weight}%
           </p>
         </div>
-        <div className={`text-[10px] px-3 py-1 rounded-full font-display font-bold tracking-widest uppercase ${scoreTone(section.score)}`}>
-          {formatScore(section.score)}
+        <div
+          className={`text-[10px] px-3 py-1 rounded-full font-display font-bold tracking-widest uppercase ${isUnavailable ? "text-slate-500 bg-white/5" : scoreTone(section.score)}`}
+        >
+          {isUnavailable
+            ? "--"
+            : displayScore == null
+              ? "--"
+              : displayScore.toFixed(1)}
         </div>
       </div>
 
-      <div className="space-y-4">
-        {section.suggestions.length > 0 ? (
-          section.suggestions.map((suggestion, idx) => (
-            <ManeuverCard
-              key={`${title}-${idx}`}
-              icon={Icon}
-              title={`Directive ${idx + 1}`}
-              description={suggestion}
-              action={action}
-              color={color}
+      {/* Signal Badges */}
+      {hasSignalBadges && (
+        <div className="flex flex-wrap gap-2 mb-4">
+          {showValuePropBadge && (
+            <SignalBadge
+              label="Value Prop ✓"
+              state="success"
+              icon={CheckCircle2}
             />
-          ))
-        ) : (
+          )}
+          {showLowImpactBadge && (
+            <SignalBadge
+              label="Low Impact Copy"
+              state="neutral"
+              icon={Sparkles}
+            />
+          )}
+          {densityLabel !== null && (
+            <SignalBadge
+              label={densityLabel}
+              state={densityState as "success" | "neutral" | "disabled"}
+              icon={Zap}
+            />
+          )}
+          {hasHoverFeedback !== null && (
+            <SignalBadge
+              label="Hover Feedback"
+              state={hasHoverFeedback ? "success" : "disabled"}
+              icon={MousePointer}
+            />
+          )}
+          {hasScrollAnimations !== null && (
+            <SignalBadge
+              label="Scroll Animations"
+              state={hasScrollAnimations ? "success" : "disabled"}
+              icon={Sparkles}
+            />
+          )}
+        </div>
+      )}
+
+      <div className="space-y-4">
+        {isUnavailable ? (
+          <div className="text-center p-6 bg-white/5 rounded-2xl border border-white/5 text-slate-500 text-sm">
+            Data Unavailable
+          </div>
+        ) : section.suggestions.length === 0 ? (
           <div className="text-center p-6 bg-white/5 rounded-2xl border border-white/5 text-slate-500 text-sm">
             Sector clear. No direct actions detected.
           </div>
+        ) : (
+          section.suggestions
+            .slice(0, 2)
+            .map((suggestion, idx) => (
+              <ManeuverCard
+                key={`${title}-${idx}`}
+                icon={Icon}
+                title={`Directive ${idx + 1}`}
+                description={suggestion}
+                action={action}
+                color={color}
+              />
+            ))
         )}
       </div>
     </div>
@@ -163,10 +308,20 @@ function InsightPanel({
 export default function ResultsSection({
   data,
   isLoading,
+  isPartial,
+  partialError,
 }: {
   data: AnalysisData | null;
   isLoading: boolean;
+  isPartial?: boolean;
+  partialError?: string | null;
 }) {
+  const [bannerDismissed, setBannerDismissed] = useState(false);
+
+  // Reset banner whenever a new result comes in
+  useEffect(() => {
+    setBannerDismissed(false);
+  }, [data]);
   // Empty State Placeholder
   if (!data && !isLoading) {
     return (
@@ -204,11 +359,11 @@ export default function ResultsSection({
   // Loading State
   if (isLoading) {
     return (
-      <section className="w-full relative py-48 flex items-center justify-center">
+      <section className="w-full relative py-24 min-h-[700px] flex items-center justify-center">
         <div className="flex flex-col items-center gap-8">
           <div className="relative w-32 h-32 flex items-center justify-center">
             <div className="absolute inset-0 border-t-2 border-primary rounded-full animate-spin" />
-            <div className="absolute inset-2 border-l-2 border-secondary rounded-full animate-[spin_2s_linear_reverse]" />
+            <div className="absolute inset-2 border-l-2 border-secondary rounded-full animate-spin [animation-direction:reverse]" />
             <Rocket className="w-8 h-8 text-primary animate-pulse" />
           </div>
           <div className="font-display font-bold text-xl tracking-[0.2em] text-gradient uppercase animate-pulse">
@@ -229,6 +384,7 @@ export default function ResultsSection({
     video_count: 0,
     has_media: false,
   };
+
   const insightPanels = [
     {
       title: "Content",
@@ -237,22 +393,9 @@ export default function ResultsSection({
       icon: Type,
       color: "text-primary",
       action: "Refine",
-    },
-    {
-      title: "Structure",
-      subtitle: "Heading hierarchy and scan patterns",
-      section: data!.structure,
-      icon: Workflow,
-      color: "text-secondary",
-      action: "Reorder",
-    },
-    {
-      title: "Design",
-      subtitle: "Motion, media, and visual hierarchy",
-      section: data!.design,
-      icon: Palette,
-      color: "text-tertiary",
-      action: "Polish",
+      weight: SECTION_WEIGHTS.content,
+      // Pass experience signals to content panel
+      experienceSignals: data!.content.experienceSignals ?? null,
     },
     {
       title: "UX",
@@ -261,6 +404,39 @@ export default function ResultsSection({
       icon: MousePointer2,
       color: "text-primary",
       action: "Improve",
+      weight: SECTION_WEIGHTS.ux,
+      // UX panel also shows hero/CTA signals
+      experienceSignals: data!.content.experienceSignals ?? null,
+    },
+    {
+      title: "Design",
+      subtitle: "Motion, media, and visual hierarchy",
+      section: data!.design,
+      icon: Palette,
+      color: "text-tertiary",
+      action: "Polish",
+      weight: SECTION_WEIGHTS.design,
+      // Pass the extended design signals to the design panel
+      designSignals: data!.design.signals,
+    },
+    {
+      title: "Structure",
+      subtitle: "Heading hierarchy and scan patterns",
+      section: data!.structure,
+      icon: Workflow,
+      color: "text-secondary",
+      action: "Reorder",
+      weight: SECTION_WEIGHTS.structure,
+    },
+    {
+      title: "SEO",
+      subtitle: "Discoverability and search visibility",
+      section: data!.seo,
+      icon: Search,
+      color: "text-secondary",
+      action: "Optimize",
+      weight: SECTION_WEIGHTS.seo,
+      panelClassName: "lg:col-span-2",
     },
   ];
 
@@ -292,20 +468,38 @@ export default function ResultsSection({
           </div>
         </div>
 
+        {/* ── Partial Analysis Warning Banner ──────────────────────────── */}
+        {isPartial && !bannerDismissed && (
+          <div className="mb-8 flex items-start gap-4 bg-amber-500/10 border border-amber-500/20 rounded-2xl px-5 py-4">
+            <span className="text-amber-400 text-lg leading-none mt-0.5">
+              ⚠
+            </span>
+            <div className="flex-1 min-w-0">
+              <p className="text-amber-300 font-display font-bold text-xs tracking-widest uppercase mb-1">
+                Partial Analysis
+              </p>
+              <p className="text-amber-200/70 text-xs font-sans leading-relaxed">
+                {partialError ??
+                  "Some sections could not be fully evaluated. Scores may be incomplete."}
+              </p>
+            </div>
+            <button
+              onClick={() => setBannerDismissed(true)}
+              className="text-amber-400/60 hover:text-amber-300 transition-colors text-lg leading-none flex-shrink-0"
+              aria-label="Dismiss partial analysis warning"
+            >
+              ×
+            </button>
+          </div>
+        )}
+
         <div className="grid grid-cols-12 gap-6 md:gap-8">
           <div className="col-span-12 xl:col-span-4 flex flex-col gap-6">
             <ScoreDial
               label="Convergence Score"
               value={data!.overallScore}
               toneClass="text-primary"
-              strokeClass="text-primary drop-shadow-[0_0_15px_rgba(193,255,254,0.6)]"
-            />
-            <ScoreDial
-              label="SEO Score"
-              value={data!.seo.score}
-              toneClass="text-secondary"
-              strokeClass="text-secondary drop-shadow-[0_0_15px_rgba(255,94,248,0.6)]"
-              suggestions={data!.seo.suggestions}
+              strokeClass="text-primary drop-shadow-[0_0_5px_rgba(193,255,254,0.6)]"
             />
           </div>
 
@@ -317,7 +511,8 @@ export default function ResultsSection({
               </h2>
               <span className="text-[10px] md:text-xs font-display text-slate-500 uppercase tracking-widest">
                 {insightPanels.reduce(
-                  (count, panel) => count + panel.section.suggestions.length,
+                  (count, panel) =>
+                    count + Math.min(2, panel.section.suggestions.length),
                   0,
                 )}{" "}
                 Directives
@@ -395,14 +590,10 @@ export default function ResultsSection({
                   <TableRow
                     name="Kinetic Drivers"
                     status={
-                      designSignals.has_animation_library
-                        ? "Detected"
-                        : "None"
+                      designSignals.has_animation_library ? "Detected" : "None"
                     }
                     impact="Performance"
-                    raw={
-                      designSignals.detected_libraries.join(", ") || "Null"
-                    }
+                    raw={designSignals.detected_libraries.join(", ") || "Null"}
                     statusColor={
                       designSignals.has_animation_library
                         ? "text-primary bg-primary/20"
@@ -411,9 +602,7 @@ export default function ResultsSection({
                   />
                   <TableRow
                     name="Page Title"
-                    status={
-                      data!.content.title ? "Present" : "Missing"
-                    }
+                    status={data!.content.title ? "Present" : "Missing"}
                     impact="Content"
                     raw={truncate(data!.content.title)}
                     statusColor={
@@ -438,7 +627,9 @@ export default function ResultsSection({
                   <TableRow
                     name="Alpha Headers (H1)"
                     status={
-                      data!.structure.h1Headings.length > 0 ? "Present" : "Missing"
+                      data!.structure.h1Headings.length > 0
+                        ? "Present"
+                        : "Missing"
                     }
                     impact="Indexability"
                     raw={data!.structure.h1Headings.length.toString()}
@@ -451,7 +642,9 @@ export default function ResultsSection({
                   <TableRow
                     name="Beta Headers (H2)"
                     status={
-                      data!.structure.h2Headings.length > 0 ? "Present" : "Missing"
+                      data!.structure.h2Headings.length > 0
+                        ? "Present"
+                        : "Missing"
                     }
                     impact="Structure"
                     raw={data!.structure.h2Headings.length.toString()}

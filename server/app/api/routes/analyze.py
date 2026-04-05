@@ -11,6 +11,7 @@ from app.schemas.analysis import (
     AnalyzeResponse,
     ContentAnalysis,
     DesignAnalysis,
+    ExperienceSignals,
     SEOAnalysis,
     StructureAnalysis,
     UXAnalysis,
@@ -132,6 +133,11 @@ async def _run_pipeline(url: str) -> AnalyzeResponse:
             meta_description=scraped.meta_description,
             score=ai_result.content.score if ai_result else None,
             suggestions=ai_result.content.suggestions if ai_result else [],
+            experience_signals=ExperienceSignals(
+                has_primary_cta_above_fold=scraped.experience_signals.has_primary_cta_above_fold,
+                hero_text_length=scraped.experience_signals.hero_text_length,
+                has_clear_value_prop=scraped.experience_signals.has_clear_value_prop,
+            ),
         ),
         structure=StructureAnalysis(
             h1_headings=scraped.h1_headings,

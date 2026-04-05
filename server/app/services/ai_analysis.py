@@ -2,10 +2,12 @@ import asyncio
 import json
 import math
 import time
+
 from typing import Any
 
 import structlog
 from google import genai
+from json_repair import repair_json
 from pydantic import BaseModel, ValidationError
 
 from app.core.config import get_gemini_api_key
@@ -18,7 +20,7 @@ logger = structlog.stdlib.get_logger("ai_analysis")
 # Constants
 # ---------------------------------------------------------------------------
 
-_MODEL_NAME = "gemini-3-flash"
+_MODEL_NAME = "gemini-3.1-flash-lite"
 _REQUEST_TIMEOUT_SECONDS = 30
 _REPAIR_REQUEST_TIMEOUT_SECONDS = 20
 _MAX_RETRIES = 2
@@ -28,8 +30,8 @@ _MAX_SUGGESTION_LENGTH = 200
 _MAX_VISIBLE_TEXT_CHARS = 3000
 _COMPACT_VISIBLE_TEXT_CHARS = 600
 _TEMPERATURE = 0.0
-_MAX_OUTPUT_TOKENS = 1600
-_COMPACT_MAX_OUTPUT_TOKENS = 900
+_MAX_OUTPUT_TOKENS = 4096
+_COMPACT_MAX_OUTPUT_TOKENS = 2048
 _MAX_REPAIR_SOURCE_CHARS = 4000
 
 
@@ -443,10 +445,18 @@ def _parse_ai_response(
 
     try:
         payload = json.loads(json_str)
-    except json.JSONDecodeError as exc:
-        AI_ERRORS.labels(reason="parse_error").inc()
-        logger.debug("ai_json_parse_failed", raw_text=raw_text[:500])
-        raise AIAnalysisError(f"AI returned invalid JSON: {exc}") from exc
+    except json.JSONDecodeError:
+        # Fast deterministic repair before falling back to expensive LLM repair
+        try:
+            repaired_str = repair_json(json_str, return_objects=False)
+            payload = json.loads(repaired_str)
+            logger.info("ai_json_repaired_locally", original_len=len(json_str))
+        except Exception as repair_exc:
+            AI_ERRORS.labels(reason="parse_error").inc()
+            logger.debug("ai_json_parse_failed", raw_text=raw_text[:500])
+            raise AIAnalysisError(
+                f"AI returned invalid JSON: {repair_exc}"
+            ) from repair_exc
 
     try:
         return _validate_ai_payload(payload)

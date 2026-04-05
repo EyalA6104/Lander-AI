@@ -1,4 +1,4 @@
-from typing import Literal
+from typing import Literal, Optional
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.services.extractors import DesignSignals
@@ -17,11 +17,21 @@ class ScoredSection(CamelModel):
     suggestions: list[str] = Field(default_factory=list)
 
 
+class ExperienceSignals(CamelModel):
+    has_primary_cta_above_fold: bool = False
+    hero_text_length: int = 0
+    has_clear_value_prop: bool = False
+
+
 class ContentAnalysis(ScoredSection):
     title: str | None = None
     meta_description: str | None = Field(
         default=None,
         serialization_alias="metaDescription",
+    )
+    experience_signals: Optional["ExperienceSignals"] = Field(
+        default=None,
+        serialization_alias="experienceSignals",
     )
 
 

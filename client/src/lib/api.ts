@@ -62,6 +62,10 @@ function normalizeResponse(response: ApiResponse): AnalyzeResponse {
           image_count: legacy.design_signals?.image_count ?? 0,
           video_count: legacy.design_signals?.video_count ?? 0,
           has_media: legacy.design_signals?.has_media ?? false,
+          // Extended fields — null in legacy mode; UI handles gracefully
+          animation_density: null,
+          has_hover_feedback: null,
+          has_scroll_animations: null,
         },
         score: null,
         suggestions: legacy.suggestions ?? [],

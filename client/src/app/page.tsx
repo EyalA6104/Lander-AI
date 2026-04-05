@@ -14,6 +14,8 @@ export default function Page() {
   const [isLoading, setIsLoading] = useState(false);
   const [result, setResult] = useState<AnalysisData | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [isPartial, setIsPartial] = useState(false);
+  const [partialError, setPartialError] = useState<string | null>(null);
   const [serverStatus, setServerStatus] = useState<
     "connecting" | "online" | "offline"
   >("connecting");
@@ -29,9 +31,12 @@ export default function Page() {
 
   const startAnalysis = async () => {
     if (!url) return;
+    // Full state reset — ensures no stale data flickers on retry
     setIsLoading(true);
     setError(null);
     setResult(null);
+    setIsPartial(false);
+    setPartialError(null);
 
     // Auto-scroll to results section so the user knows something is happening
     setTimeout(() => {
@@ -46,7 +51,9 @@ export default function Page() {
         setResult(response.data);
       } else if (response.status === "partial" && response.data) {
         setResult(response.data);
-        setError(response.error || "Analysis completed with partial data.");
+        setIsPartial(true);
+        setPartialError(response.error || "Analysis completed with partial data.");
+        setError(null); // surface via banner, not the inline error
       } else {
         setError(response.error || "Analysis failed");
         setResult(null);
@@ -90,7 +97,12 @@ export default function Page() {
             }}
             className="overflow-hidden w-full"
           >
-            <ResultsSection data={result} isLoading={isLoading} />
+            <ResultsSection
+              data={result}
+              isLoading={isLoading}
+              isPartial={isPartial}
+              partialError={partialError}
+            />
           </motion.div>
         )}
       </AnimatePresence>
