@@ -5,10 +5,18 @@ import time
 
 from typing import Any
 
+import httpx
 import structlog
 from google import genai
+from google.genai.errors import APIError, ServerError
 from json_repair import repair_json
 from pydantic import BaseModel, ValidationError
+from tenacity import (
+    retry,
+    retry_if_exception,
+    stop_after_attempt,
+    wait_exponential_jitter,
+)
 
 from app.core.config import get_gemini_api_key
 from app.core.metrics import AI_DURATION, AI_ERRORS, AI_RETRIES, AI_SCORES
@@ -20,7 +28,7 @@ logger = structlog.stdlib.get_logger("ai_analysis")
 # Constants
 # ---------------------------------------------------------------------------
 
-_MODEL_NAME = "gemini-3.1-flash-lite-preview"
+_MODEL_NAME = "gemini-2.5-flash"
 _REQUEST_TIMEOUT_SECONDS = 30
 _REPAIR_REQUEST_TIMEOUT_SECONDS = 20
 _MAX_RETRIES = 2
@@ -505,6 +513,39 @@ async def _repair_ai_response(
         return None
 
 
+def _is_retryable_error(exc: BaseException) -> bool:
+    if isinstance(exc, asyncio.TimeoutError):
+        return True
+    if isinstance(exc, ServerError):
+        return True
+    if isinstance(exc, APIError):
+        code = getattr(exc, "code", None)
+        if code in (429, 500, 502, 503, 504):
+            return True
+    if isinstance(exc, httpx.RequestError):
+        return True
+    return False
+
+
+def _on_retry(retry_state):
+    exc = retry_state.outcome.exception()
+    AI_RETRIES.inc()
+    reason = "timeout" if isinstance(exc, asyncio.TimeoutError) else "api_error"
+    logger.warning(
+        "ai_api_retrying",
+        attempt=retry_state.attempt_number,
+        error=str(exc),
+        reason=reason,
+    )
+
+
+@retry(
+    retry=retry_if_exception(_is_retryable_error),
+    wait=wait_exponential_jitter(initial=1, max=10),
+    stop=stop_after_attempt(5),
+    before_sleep=_on_retry,
+    reraise=True,
+)
 async def _generate_ai_response(
     client: genai.Client,
     user_prompt: str,
@@ -552,145 +593,120 @@ async def analyze_with_ai(scraped_data: ScrapedPageData) -> AIAnalysisResult:
     log = logger.bind(url=scraped_data.url)
     log.info("ai_analysis_started")
 
-    last_error: AIAnalysisError | None = None
-
-    for attempt in range(1, _MAX_RETRIES + 1):
-        attempt_start = time.perf_counter()
-        try:
-            response = await _generate_ai_response(client, user_prompt)
-        except asyncio.TimeoutError:
-            AI_DURATION.observe(time.perf_counter() - attempt_start)
-            AI_ERRORS.labels(reason="timeout").inc()
-            log.error("ai_timeout", attempt=attempt, max_retries=_MAX_RETRIES)
-            last_error = AIAnalysisError(
-                f"AI request timed out after {_REQUEST_TIMEOUT_SECONDS}s"
-            )
-            if attempt < _MAX_RETRIES:
-                AI_RETRIES.inc()
-            continue
-        except Exception as exc:
-            AI_DURATION.observe(time.perf_counter() - attempt_start)
-            AI_ERRORS.labels(reason="api_error").inc()
-            log.error("ai_api_error", error=str(exc))
-            raise AIAnalysisError(f"API request failed: {exc}") from exc
-
-        raw_text = getattr(response, "text", None)
-        parsed_payload = getattr(response, "parsed", None)
-        finish_reason, finish_message = _extract_finish_metadata(response)
+    attempt_start = time.perf_counter()
+    try:
+        response = await _generate_ai_response(client, user_prompt)
         AI_DURATION.observe(time.perf_counter() - attempt_start)
-        if not raw_text and parsed_payload is None:
-            AI_ERRORS.labels(reason="empty_response").inc()
-            last_error = AIAnalysisError("AI returned an empty response")
-            log.warning(
-                "ai_empty_response",
-                attempt=attempt,
-                max_retries=_MAX_RETRIES,
-                finish_reason=finish_reason,
-                finish_message=finish_message,
-            )
-            if attempt < _MAX_RETRIES:
-                AI_RETRIES.inc()
-            continue
+    except asyncio.TimeoutError:
+        AI_DURATION.observe(time.perf_counter() - attempt_start)
+        AI_ERRORS.labels(reason="timeout").inc()
+        log.error("ai_timeout", max_retries=5)
+        raise AIAnalysisError(f"AI request timed out after {_REQUEST_TIMEOUT_SECONDS}s")
+    except Exception as exc:
+        AI_DURATION.observe(time.perf_counter() - attempt_start)
+        AI_ERRORS.labels(reason="api_error").inc()
+        log.error("ai_api_error", error=str(exc))
+        raise AIAnalysisError(f"API request failed: {exc}") from exc
 
-        log.debug(
-            "ai_raw_response",
-            attempt=attempt,
-            response=(raw_text or "")[:500],
-            parsed_available=parsed_payload is not None,
+    raw_text = getattr(response, "text", None)
+    parsed_payload = getattr(response, "parsed", None)
+    finish_reason, finish_message = _extract_finish_metadata(response)
+
+    if not raw_text and parsed_payload is None:
+        AI_ERRORS.labels(reason="empty_response").inc()
+        log.warning(
+            "ai_empty_response",
             finish_reason=finish_reason,
+            finish_message=finish_message,
         )
+        raise AIAnalysisError("AI returned an empty response")
 
-        try:
-            result = _parse_ai_response(raw_text, parsed_payload)
-            AI_SCORES.observe(result.overallScore)
-            log.info(
-                "ai_analysis_completed",
-                attempt=attempt,
-                repaired=False,
-                score=result.overallScore,
-                suggestion_count=(
-                    len(result.content.suggestions)
-                    + len(result.structure.suggestions)
-                    + len(result.design.suggestions)
-                    + len(result.ux.suggestions)
-                    + len(result.seo.suggestions)
-                ),
-            )
-            return result
-        except AIAnalysisError as exc:
-            if _should_try_compact_retry(finish_reason, exc.reason):
-                try:
-                    compact_response = await _generate_ai_response(
-                        client,
-                        compact_user_prompt,
-                        max_output_tokens=_COMPACT_MAX_OUTPUT_TOKENS,
-                    )
-                    compact_result = _parse_ai_response(
-                        getattr(compact_response, "text", None),
-                        getattr(compact_response, "parsed", None),
-                    )
-                    AI_SCORES.observe(compact_result.overallScore)
-                    log.info(
-                        "ai_analysis_completed",
-                        attempt=attempt,
-                        repaired=False,
-                        compact_retry=True,
-                        score=compact_result.overallScore,
-                        suggestion_count=(
-                            len(compact_result.content.suggestions)
-                            + len(compact_result.structure.suggestions)
-                            + len(compact_result.design.suggestions)
-                            + len(compact_result.ux.suggestions)
-                            + len(compact_result.seo.suggestions)
-                        ),
-                    )
-                    return compact_result
-                except (AIAnalysisError, asyncio.TimeoutError):
-                    log.debug(
-                        "ai_compact_retry_failed",
-                        attempt=attempt,
-                        finish_reason=finish_reason,
-                    )
-                except Exception as compact_exc:
-                    log.debug(
-                        "ai_compact_retry_error",
-                        attempt=attempt,
-                        finish_reason=finish_reason,
-                        error=str(compact_exc),
-                    )
+    log.debug(
+        "ai_raw_response",
+        response=(raw_text or "")[:500],
+        parsed_available=parsed_payload is not None,
+        finish_reason=finish_reason,
+    )
 
-            repaired_result = await _repair_ai_response(
-                client=client,
-                user_prompt=user_prompt,
-                raw_text=raw_text,
-                error_reason=exc.reason,
-            )
-            if repaired_result is not None:
-                AI_SCORES.observe(repaired_result.overallScore)
+    try:
+        result = _parse_ai_response(raw_text, parsed_payload)
+        AI_SCORES.observe(result.overallScore)
+        log.info(
+            "ai_analysis_completed",
+            repaired=False,
+            score=result.overallScore,
+            suggestion_count=(
+                len(result.content.suggestions)
+                + len(result.structure.suggestions)
+                + len(result.design.suggestions)
+                + len(result.ux.suggestions)
+                + len(result.seo.suggestions)
+            ),
+        )
+        return result
+    except AIAnalysisError as exc:
+        if _should_try_compact_retry(finish_reason, exc.reason):
+            try:
+                compact_response = await _generate_ai_response(
+                    client,
+                    compact_user_prompt,
+                    max_output_tokens=_COMPACT_MAX_OUTPUT_TOKENS,
+                )
+                compact_result = _parse_ai_response(
+                    getattr(compact_response, "text", None),
+                    getattr(compact_response, "parsed", None),
+                )
+                AI_SCORES.observe(compact_result.overallScore)
                 log.info(
                     "ai_analysis_completed",
-                    attempt=attempt,
-                    repaired=True,
-                    score=repaired_result.overallScore,
+                    repaired=False,
+                    compact_retry=True,
+                    score=compact_result.overallScore,
                     suggestion_count=(
-                        len(repaired_result.content.suggestions)
-                        + len(repaired_result.structure.suggestions)
-                        + len(repaired_result.design.suggestions)
-                        + len(repaired_result.ux.suggestions)
-                        + len(repaired_result.seo.suggestions)
+                        len(compact_result.content.suggestions)
+                        + len(compact_result.structure.suggestions)
+                        + len(compact_result.design.suggestions)
+                        + len(compact_result.ux.suggestions)
+                        + len(compact_result.seo.suggestions)
                     ),
                 )
-                return repaired_result
+                return compact_result
+            except (AIAnalysisError, asyncio.TimeoutError):
+                log.debug(
+                    "ai_compact_retry_failed",
+                    finish_reason=finish_reason,
+                )
+            except Exception as compact_exc:
+                log.debug(
+                    "ai_compact_retry_error",
+                    finish_reason=finish_reason,
+                    error=str(compact_exc),
+                )
 
-            last_error = exc
-            log.warning(
-                "ai_parse_failed",
-                attempt=attempt,
-                max_retries=_MAX_RETRIES,
-                reason=exc.reason,
+        repaired_result = await _repair_ai_response(
+            client=client,
+            user_prompt=user_prompt,
+            raw_text=raw_text,
+            error_reason=exc.reason,
+        )
+        if repaired_result is not None:
+            AI_SCORES.observe(repaired_result.overallScore)
+            log.info(
+                "ai_analysis_completed",
+                repaired=True,
+                score=repaired_result.overallScore,
+                suggestion_count=(
+                    len(repaired_result.content.suggestions)
+                    + len(repaired_result.structure.suggestions)
+                    + len(repaired_result.design.suggestions)
+                    + len(repaired_result.ux.suggestions)
+                    + len(repaired_result.seo.suggestions)
+                ),
             )
-            if attempt < _MAX_RETRIES:
-                AI_RETRIES.inc()
-            continue
+            return repaired_result
 
-    raise last_error  # type: ignore[misc]
+        log.warning(
+            "ai_parse_failed",
+            reason=exc.reason,
+        )
+        raise exc

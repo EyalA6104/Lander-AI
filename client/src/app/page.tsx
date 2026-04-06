@@ -52,7 +52,9 @@ export default function Page() {
       } else if (response.status === "partial" && response.data) {
         setResult(response.data);
         setIsPartial(true);
-        setPartialError(response.error || "Analysis completed with partial data.");
+        setPartialError(
+          response.error || "Analysis completed with partial data.",
+        );
         setError(null); // surface via banner, not the inline error
       } else {
         setError(response.error || "Analysis failed");
@@ -107,16 +109,13 @@ export default function Page() {
         )}
       </AnimatePresence>
 
-      <footer className="w-full py-12 flex flex-col items-center gap-6 border-t border-white/5 bg-background/80 backdrop-blur-md relative z-20">
+      <footer className="w-full py-6 flex flex-col items-center gap-6 border-t border-white/5 bg-background/80 backdrop-blur-md relative z-20">
         <div className="text-[10px] font-black tracking-[0.4em] text-gradient font-display">
           LANDER AI
         </div>
         <div className="flex gap-10 text-white/40 font-sans text-[9px] tracking-[0.2em] uppercase">
           <a className="hover:text-primary transition-colors" href="#">
             Privacy Protocol
-          </a>
-          <a className="hover:text-primary transition-colors" href="#">
-            Sector Map
           </a>
           <a className="hover:text-primary transition-colors" href="#">
             Support

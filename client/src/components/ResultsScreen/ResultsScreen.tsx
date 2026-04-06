@@ -298,10 +298,10 @@ export default function ResultsScreen({
     <ResultsBackground>
       <div className="max-w-[1600px] mx-auto px-6 md:px-12 w-full pb-20">
         {/* ── Hero Header ─────────────────────────────────────────────────── */}
-        <header className="flex flex-col lg:flex-row justify-between gap-10 mb-12 relative">
-          <div className="flex-1">
+        <header className="flex flex-col lg:flex-row items-center lg:items-start text-center lg:text-left justify-between gap-10 mb-12 relative">
+          <div className="flex-1 flex flex-col items-center lg:items-start">
             {/* Sector label */}
-            <div className="flex items-center gap-3 mb-4">
+            <div className="flex items-center justify-center lg:justify-start gap-3 mb-4">
               <span className="h-[2px] w-12 bg-primary inline-block" />
               <span className="font-display text-primary text-xs font-bold tracking-[0.4em] uppercase">
                 Sector Alpha Reporting
@@ -327,7 +327,7 @@ export default function ResultsScreen({
 
         {/* ── Partial Analysis Warning Banner ─────────────────────────────── */}
         {isPartial && !bannerDismissed && (
-          <div className="mb-10 flex items-start gap-4 bg-amber-500/10 border border-amber-500/20 rounded-2xl px-5 py-4">
+          <div className="mb-10 flex flex-col md:flex-row items-center md:items-start text-center md:text-left gap-4 bg-amber-500/10 border border-amber-500/20 rounded-2xl px-5 py-4">
             <span className="text-amber-400 text-lg leading-none mt-0.5">
               ⚠
             </span>
@@ -365,14 +365,14 @@ export default function ResultsScreen({
 
         {/* ── Tactical Maneuvers ───────────────────────────────────────────── */}
         <div className="flex flex-col md:flex-row md:items-center justify-between mb-12 gap-6 md:gap-8">
-          <h2 className="font-display text-2xl md:text-3xl lg:text-4xl font-bold tracking-[0.05em] flex items-center gap-4 md:gap-5 flex-1 uppercase text-white">
-            <span className="w-3 h-3 bg-primary rounded-full animate-pulse shadow-[0_0_15px_#c1fffe]" />
+          <h2 className="font-display text-2xl md:text-3xl lg:text-4xl font-bold tracking-[0.05em] flex flex-wrap items-center justify-center md:justify-start gap-4 md:gap-5 flex-1 uppercase text-white text-center md:text-left">
+            <span className="w-3 h-3 bg-primary rounded-full animate-pulse shadow-[0_0_15px_#c1fffe] hidden md:block" />
             <span className="hidden sm:inline">Tactical Maneuvers:</span>
             <span className="sm:hidden">Sector:</span>
             <span className="text-primary ml-1 md:ml-2">
               {activeCategory.label}
             </span>
-            <span className="h-[1px] flex-1 bg-gradient-to-r from-white/30 to-transparent ml-4" />
+            <span className="hidden md:block h-[1px] flex-1 bg-gradient-to-r from-white/30 to-transparent ml-4" />
           </h2>
           <button
             onClick={handleNext}
@@ -439,9 +439,9 @@ export default function ResultsScreen({
           <div className="absolute -top-40 -right-40 w-80 h-80 bg-primary/5 blur-[100px] rounded-full pointer-events-none" />
 
           {/* Table header */}
-          <div className="p-8 md:p-10 border-b border-white/5 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-black/20 backdrop-blur-md">
-            <div>
-              <h2 className="font-display text-xl md:text-2xl font-bold tracking-tight uppercase flex items-center gap-3 text-white">
+          <div className="p-8 md:p-10 border-b border-white/5 flex flex-col md:flex-row justify-between items-center md:items-start gap-6 bg-black/20 backdrop-blur-md text-center md:text-left">
+            <div className="flex flex-col items-center md:items-start">
+              <h2 className="font-display text-xl md:text-2xl font-bold tracking-tight uppercase flex items-center justify-center md:justify-start gap-3 text-white">
                 <Activity className="w-5 h-5 text-tertiary" />
                 Telemetry Data
               </h2>
@@ -449,7 +449,7 @@ export default function ResultsScreen({
                 Structural and visual node signals
               </p>
             </div>
-            <div className="flex gap-2">
+            <div className="flex gap-2 justify-center">
               <span className="px-3 py-1.5 rounded-lg bg-white/5 text-[10px] font-bold text-slate-400 uppercase tracking-widest border border-white/5">
                 v2.4.0
               </span>

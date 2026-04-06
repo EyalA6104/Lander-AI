@@ -98,7 +98,6 @@ class AIAnalysisReliabilityTests(unittest.IsolatedAsyncioTestCase):
         fake_client = _FakeClient(
             [
                 SimpleNamespace(text='{"overallScore": 88, "content": ', parsed=None, candidates=[]),
-                SimpleNamespace(text='{"overallScore": 88, "content": ', parsed=None, candidates=[]),
                 SimpleNamespace(text=None, parsed=_valid_payload(), candidates=[]),
             ]
         )
@@ -111,10 +110,10 @@ class AIAnalysisReliabilityTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(result.overallScore, 88.0)
         self.assertEqual(result.design.score, 87.0)
-        self.assertEqual(len(fake_client.aio.models.calls), 3)
+        self.assertEqual(len(fake_client.aio.models.calls), 2)
         self.assertIn(
             "Malformed model response",
-            fake_client.aio.models.calls[2]["contents"],
+            fake_client.aio.models.calls[1]["contents"],
         )
 
     async def test_analyze_with_ai_uses_compact_retry_on_max_tokens(self) -> None:
@@ -150,7 +149,13 @@ class AIAnalysisReliabilityTests(unittest.IsolatedAsyncioTestCase):
     async def test_analyze_with_ai_falls_back_when_compact_retry_errors(self) -> None:
         fake_client = _FakeClient(
             [
-                SimpleNamespace(text='{"overallScore": 88, "content": ', parsed=None, candidates=[]),
+                SimpleNamespace(
+                    text='{"overallScore": 88, "content": ',
+                    parsed=None,
+                    candidates=[
+                        SimpleNamespace(finish_reason="MAX_TOKENS", finish_message="Truncated")
+                    ],
+                ),
                 RuntimeError("quota exceeded"),
                 SimpleNamespace(text=None, parsed=_valid_payload(), candidates=[]),
             ]

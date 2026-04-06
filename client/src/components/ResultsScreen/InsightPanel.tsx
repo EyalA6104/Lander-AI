@@ -13,7 +13,7 @@ import {
   DesignSignals,
 } from "@/types/analysis";
 import SignalBadge from "./SignalBadge";
-import { useCountUp, scoreTone } from "./utils";
+import { useCountUp } from "./utils";
 
 export default function InsightPanel({
   title,
@@ -76,6 +76,8 @@ export default function InsightPanel({
     hasHoverFeedback !== null ||
     hasScrollAnimations !== null;
 
+  const pct = isUnavailable ? 0 : Math.min(Math.max(displayScore ?? 0, 0), 100);
+
   return (
     <div
       className={`grid grid-cols-1 lg:grid-cols-12 gap-8 ${panelClassName ?? ""}`}
@@ -88,33 +90,40 @@ export default function InsightPanel({
 
           {/* Top Section */}
           <div className="flex flex-col md:flex-row md:items-start justify-between gap-6 relative z-10">
-            <div className="flex items-center gap-6">
-              <div className="w-16 h-16 rounded-2xl bg-primary/10 flex items-center justify-center text-primary shadow-[0_0_20px_rgba(193,255,254,0.1)] shrink-0 border border-primary/20">
-                <Icon className="w-8 h-8" />
+            <div className="flex flex-col md:flex-row items-center md:items-start text-center md:text-left gap-6">
+              <div className="relative w-16 h-16 flex items-center justify-center shrink-0">
+                {/* Track ring */}
+                <div className="absolute inset-0 rounded-full border-2 border-white/5" />
+                {/* Conic progress */}
+                <div
+                  className="absolute inset-0 rounded-full transition-all duration-1000"
+                  style={{
+                    background: `conic-gradient(from 0deg, #c1fffe 0%, #c37fff ${
+                      pct * 3.6
+                    }deg, transparent ${pct * 3.6}deg)`,
+                  }}
+                />
+                {/* Inner face */}
+                <div className="absolute inset-[3px] rounded-full bg-[#0c0e18] flex items-center justify-center text-primary shadow-[inset_0_0_20px_rgba(193,255,254,0.1)]">
+                  <Icon className="w-8 h-8" />
+                </div>
               </div>
-              <div>
+              <div className="flex flex-col items-center md:items-start">
                 <h3 className="font-display text-2xl md:text-3xl font-bold tracking-tight mb-2 uppercase text-white">
                   {title} Metrics
                 </h3>
-                <div className="flex flex-wrap gap-2">
-                  <span className="px-3 py-1 rounded-lg text-[10px] font-bold text-slate-300 uppercase tracking-widest leading-none flex items-center border border-white/5 bg-white/5">
+                <div className="flex flex-wrap justify-center md:justify-start gap-2">
+                  <span className="px-3 py-1 rounded-lg text-[10px] font-bold text-slate-300 uppercase tracking-widest leading-relaxed flex items-center border border-white/5 bg-white/5">
                     {subtitle}
-                  </span>
-                  <span
-                    className={`px-3 py-1 rounded-lg text-[10px] font-bold uppercase tracking-widest leading-none flex items-center ${isUnavailable ? "text-slate-500 bg-white/5" : scoreTone(section.score)}`}
-                  >
-                    Score:{" "}
-                    {isUnavailable ? "--" : (displayScore?.toFixed(1) ?? "--")}
                   </span>
                 </div>
               </div>
             </div>
           </div>
 
-
           {/* Grid: Description & Directives */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-8 relative z-10 flex-1">
-            <div className="space-y-6">
+            <div className="space-y-6 text-center md:text-left flex flex-col items-center md:items-start">
               <p className="text-slate-300 text-base md:text-lg leading-relaxed font-light">
                 Your current{" "}
                 <span className="text-white font-medium">
@@ -134,7 +143,7 @@ export default function InsightPanel({
                     ? " Sector clear. No directives required."
                     : " Review the directives to optimize performance."}
               </p>
-              <div className="flex -space-x-3 pt-4 items-center">
+              <div className="flex -space-x-3 pt-4 items-center justify-center md:justify-start">
                 <div className="w-10 h-10 rounded-full border-2 border-slate-900 bg-primary/20 flex items-center justify-center relative z-20">
                   <Sparkles className="w-4 h-4 text-primary" />
                 </div>
@@ -185,7 +194,7 @@ export default function InsightPanel({
       {/* Sidebar Column */}
       <div className="lg:col-span-4 flex flex-col gap-6">
         <div className="bg-black/40 backdrop-blur-xl border border-white/10 rounded-[2.5rem] p-8 flex flex-col h-full shadow-2xl relative overflow-hidden">
-          <div className="flex items-center gap-4 mb-8 relative z-10">
+          <div className="flex flex-col md:flex-row items-center md:items-start gap-4 mb-8 relative z-10 text-center md:text-left">
             <div className="w-12 h-12 rounded-xl bg-secondary/10 flex items-center justify-center text-secondary border border-secondary/20 shrink-0">
               <Activity className="w-6 h-6" />
             </div>
@@ -196,12 +205,7 @@ export default function InsightPanel({
 
           <div className="flex-1 space-y-6 relative z-10 flex flex-col ">
             <div className="p-6 rounded-2xl bg-white/5 border border-white/10 relative overflow-hidden group">
-              <div className="absolute top-0 right-0 p-3">
-                <span className="px-2 py-0.5 rounded bg-secondary/20 text-secondary text-[8px] font-black uppercase tracking-widest">
-                  Active
-                </span>
-              </div>
-              <p className="text-slate-400 text-sm leading-relaxed mb-6 pr-8">
+              <p className="text-slate-400 text-sm leading-relaxed mb-6 text-center md:text-left">
                 System weight alignment and impact status for this tactical
                 sector.
               </p>
@@ -218,9 +222,11 @@ export default function InsightPanel({
 
             {/* Signal Badges Area */}
             {hasSignalBadges && (
-              <div className="flex flex-col gap-3 relative z-10 bg-white/[0.02] p-4 rounded-2xl border border-white/5">
-                <span className="text-[10px] font-display uppercase tracking-widest text-slate-500">Active Signals</span>
-                <div className="flex flex-wrap gap-2">
+              <div className="flex flex-col gap-3 relative z-10 bg-white/[0.02] p-4 rounded-2xl border border-white/5 text-center md:text-left">
+                <span className="text-[10px] font-display uppercase tracking-widest text-slate-500">
+                  Active Signals
+                </span>
+                <div className="flex flex-wrap justify-center md:justify-start gap-2">
                   {showValuePropBadge && (
                     <SignalBadge
                       label="Value Prop ✓"

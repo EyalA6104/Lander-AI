@@ -67,18 +67,6 @@ export default function LandingScreen({
             <a href="#" className="text-primary border-b-2 border-primary pb-1">
               Explorer
             </a>
-            <a
-              href="#"
-              className="text-slate-400 hover:text-white transition-colors"
-            >
-              Mission Log
-            </a>
-            <a
-              href="#"
-              className="text-slate-400 hover:text-white transition-colors"
-            >
-              Tech Specs
-            </a>
           </div>
 
           <div className="flex items-center gap-4 z-20">
@@ -106,12 +94,6 @@ export default function LandingScreen({
             >
               <a href="#" className="text-primary">
                 Explorer
-              </a>
-              <a href="#" className="text-slate-400">
-                Mission Log
-              </a>
-              <a href="#" className="text-slate-400">
-                Tech Specs
               </a>
             </motion.div>
           )}
