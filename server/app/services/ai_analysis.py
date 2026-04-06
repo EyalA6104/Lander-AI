@@ -20,7 +20,7 @@ logger = structlog.stdlib.get_logger("ai_analysis")
 # Constants
 # ---------------------------------------------------------------------------
 
-_MODEL_NAME = "gemini-3.1-flash-lite"
+_MODEL_NAME = "gemini-3.1-flash-lite-preview"
 _REQUEST_TIMEOUT_SECONDS = 30
 _REPAIR_REQUEST_TIMEOUT_SECONDS = 20
 _MAX_RETRIES = 2

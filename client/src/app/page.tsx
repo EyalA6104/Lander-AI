@@ -7,7 +7,7 @@ import { Background, HUDCorners } from "@/components/Layout";
 import { AnimatePresence, motion } from "motion/react";
 
 import LandingScreen from "@/components/LandingScreen/LandingScreen";
-import ResultsSection from "@/components/ResultsSection";
+import ResultsScreen from "@/components/ResultsScreen";
 
 export default function Page() {
   const [url, setUrl] = useState("");
@@ -97,7 +97,7 @@ export default function Page() {
             }}
             className="overflow-hidden w-full"
           >
-            <ResultsSection
+            <ResultsScreen
               data={result}
               isLoading={isLoading}
               isPartial={isPartial}
