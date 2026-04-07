@@ -1,6 +1,6 @@
 import { AnalyzeResponse } from "@/types/analysis";
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
 
 type LegacyAnalyzeData = {
   url: string;
@@ -84,7 +84,7 @@ function normalizeResponse(response: ApiResponse): AnalyzeResponse {
 }
 
 export async function analyzeUrl(url: string): Promise<AnalyzeResponse> {
-  const response = await fetch(`${API_BASE_URL}/analyze`, {
+  const response = await fetch(`${API_URL}/analyze`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ url }),

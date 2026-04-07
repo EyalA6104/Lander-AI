@@ -8,6 +8,7 @@ import { AnimatePresence, motion } from "motion/react";
 
 import LandingScreen from "@/components/LandingScreen/LandingScreen";
 import ResultsScreen from "@/components/ResultsScreen";
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
 
 export default function Page() {
   const [url, setUrl] = useState("");
@@ -21,7 +22,7 @@ export default function Page() {
   >("connecting");
 
   useEffect(() => {
-    fetch("http://127.0.0.1:8000/")
+    fetch(`${API_URL}/`)
       .then((res) => {
         if (res.ok) setServerStatus("online");
         else setServerStatus("offline");
