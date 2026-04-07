@@ -49,9 +49,12 @@ instrumentator.instrument(app).expose(app, include_in_schema=False)
 # Starlette executes the *last* added middleware first on the request path.
 # Desired order: RequestContext -> Logging -> RateLimiter -> CORS -> Route
 # So we add them in reverse.
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    allow_origins=["http://localhost:3000", 
+    "https://lander-ai-six.vercel.app",
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

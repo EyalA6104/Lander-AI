@@ -206,3 +206,47 @@ server/app/api/dependencies/
 
 - Passing raw user input to external services
 - Blindly trusting user-provided data
+
+---
+
+# Docker and Containerization
+
+## Purpose
+
+- Ensure 100% environment parity between local development and production
+- Standardize the deployment artifact for GCP Cloud Run and future scaling
+
+## Core Principle
+
+- Containers must be stateless and immutable
+- Optimize for "Fast Cold Starts" by keeping images lean
+
+## Required Usage
+
+- Every backend service must include a `Dockerfile` in its root directory
+- A `.dockerignore` file is mandatory to exclude `__pycache__`, `.venv`, and `.git`
+- Use slim or alpine base images to minimize the attack surface and image size
+
+## Required Pattern (Cloud Run)
+
+- The application must bind to `0.0.0.0` (not `127.0.0.1`)
+- The application must listen on the port defined by the `$PORT` environment variable
+- Set `PYTHONUNBUFFERED=1` to ensure logs are streamed to Cloud Logging in real-time
+
+## Forbidden
+
+- Hardcoding secrets, API keys, or `.env` files inside the Docker image
+- Running the application process as the `root` user (use a non-privileged user)
+- Including build tools, compilers, or test suites in the final production image
+- Using the `latest` tag for base images; always pin to a specific version
+
+## Optimization and Security
+
+- Use multi-stage builds if the installation requires heavy build dependencies (e.g., C++ compilers)
+- Order `Dockerfile` commands to maximize layer caching (copy `requirements.txt` before source code)
+- Keep the final image size under 500MB where possible
+
+## Anti-Patterns
+
+- "Works on my machine" excuses; the Docker image is the only source of truth for "working"
+- Embedding local database files (e.g., SQLite) inside the image
